@@ -440,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
     # say: a file that is in perfect order is still doing nothing for anybody
     # whose git has not been told to read it.
     if report.ok and gitcmd.ignore_revs_config(args.directory) is None:
+        # stdout is block-buffered when it isn't a terminal, and stderr is not,
+        # so without this the note lands above the report it is a footnote to
+        # the moment anybody pipes the output anywhere.
+        out.flush()
         print(file=sys.stderr)
         print(CONFIG_HINT.format(path=args.file), file=sys.stderr)
 
