@@ -1,0 +1,7 @@
+# Revisions git blame should skip. Nothing here yet: this repo has never been
+# reformatted. The file exists anyway, because an empty one is what stops a
+# global blame.ignoreRevsFile setting from breaking git blame in a repo that
+# hasn't got one -- and because CI runs blamecheck against it, which is how we
+# find out if "an empty file is a pass" ever stops being true.
+#
+# Add to it with:  blamecheck --add <rev>
