@@ -121,6 +121,11 @@ $ tail -2 .git-blame-ignore-revs
 It creates the file if it isn't there, and adding the same commit twice leaves
 the file alone.
 
+If it can't write — read-only file, parent directory that isn't there, full
+disk — that is **exit 2**, not 1. Exit 1 is reserved for a revision that has
+actually rotted, and a CI job gating on it should never be handed a
+permissions problem wearing that code.
+
 This is not a fixer. It will not rewrite a stale line for you, because it
 cannot know which commit you meant — finding the one that actually landed is a
 judgement call about your history, and a tool that guessed would be worse than

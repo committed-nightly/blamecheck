@@ -327,9 +327,8 @@ def _do_add(args, root: str, out) -> int:
         messages.append(f"  {sha[:9]}  {commit.subject if commit else ''}".rstrip())
         existing = _append_block(existing, block)
 
-    if to_append:
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(existing)
+    if to_append and not _write_file(path, args.file, existing):
+        return EXIT_ERROR
 
     if not args.quiet:
         added = (
@@ -341,6 +340,43 @@ def _do_add(args, root: str, out) -> int:
         for message in messages:
             print(message, file=out)
     return EXIT_OK
+
+
+def _write_file(path: str, shown: str, text: str) -> bool:
+    """Overwrite the ignore file. False means it did not happen, and said why.
+
+    A write can fail for reasons that have nothing to do with the file being
+    rotten -- a read-only file, a parent directory that isn't there, a full
+    disk -- and none of those may leave through exit 1. Exit 1 means "at least
+    one revision is not real or reachable", and a script gating on it would
+    read a permissions problem as an ignore file gone bad. All of these are
+    exit 2: nobody looked.
+
+    Opening and writing are separated because they fail differently. Failing to
+    open leaves the file exactly as it was. Failing to write does not: ``w``
+    has already truncated it by then, so the file on disk is the one thing this
+    tool exists to protect, and now shorter. That is worth saying out loud
+    rather than reporting as the same error.
+    """
+    try:
+        handle = open(path, "w", encoding="utf-8")
+    except OSError as exc:
+        print(f"blamecheck: could not write {shown}: {exc}", file=sys.stderr)
+        print("  Nothing was added and nothing on disk changed.", file=sys.stderr)
+        return False
+
+    try:
+        with handle:
+            handle.write(text)
+    except OSError as exc:
+        print(f"blamecheck: could not write {shown}: {exc}", file=sys.stderr)
+        print(
+            f"  {shown} was truncated before this failed and is now incomplete."
+            f"\n  If it is tracked, get it back with:  git checkout -- {shown}",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 def _append_block(text: str, block: str) -> str:

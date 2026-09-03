@@ -6,6 +6,8 @@ import json
 import os
 import subprocess
 
+import pytest
+
 from blamecheck.cli import main
 from blamecheck.revsfile import parse
 
@@ -201,3 +203,64 @@ def test_add_appends_without_a_stray_blank_line(formatted):
     run(formatted, "--add", "HEAD")
     names = [line.name for line in parse(formatted.read(".git-blame-ignore-revs"))]
     assert names == [formatted.base, formatted.fmt]
+
+
+# A failed write is not a failed check. These all have to be 2, never 1 --
+# a CI script gating on 1 would read "the file is read-only" as "the file has
+# rotted", which is the one wrong answer this tool must not give.
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write a read-only file")
+def test_add_to_an_unwritable_file_exits_two(formatted, capsys):
+    formatted.ignore_revs(formatted.base)
+    os.chmod(formatted.path + "/.git-blame-ignore-revs", 0o444)
+    before = formatted.read(".git-blame-ignore-revs")
+
+    code, out, err = run(formatted, "--add", "HEAD", capsys=capsys)
+
+    assert code == 2
+    assert "could not write .git-blame-ignore-revs" in err
+    assert "Permission denied" in err
+    assert "nothing on disk changed" in err
+    assert out == ""
+    # And it really is as it was.
+    assert formatted.read(".git-blame-ignore-revs") == before
+
+
+def test_add_under_a_directory_that_does_not_exist_exits_two(formatted, capsys):
+    code, out, err = run(formatted, "--file", "nope/revs", "--add", "HEAD", capsys=capsys)
+    assert code == 2
+    assert "could not write nope/revs" in err
+    assert "nothing on disk changed" in err
+    assert out == ""
+
+
+def test_add_that_fails_mid_write_says_the_file_is_damaged(formatted, capsys, monkeypatch):
+    """``w`` truncates before it writes, so this case cannot claim otherwise."""
+    formatted.ignore_revs(formatted.base)
+    target = formatted.path + "/.git-blame-ignore-revs"
+    real_open = open
+
+    class FullDisk:
+        def write(self, _text):
+            raise OSError(28, "No space left on device")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_open(file, *args, **kwargs):
+        if str(file) == target and "w" in str(args[0] if args else kwargs.get("mode", "")):
+            return FullDisk()
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    code, out, err = run(formatted, "--add", "HEAD", capsys=capsys)
+
+    assert code == 2
+    assert "No space left on device" in err
+    assert "is now incomplete" in err
+    assert "git checkout -- .git-blame-ignore-revs" in err
+    assert out == ""
